@@ -1,0 +1,29 @@
+# Compiled C++ binaries
+cpp/*.o
+cpp/*.exe
+1D
+1D.exe
+1D.dSYM/
+
+# Old root-level plots (superseded by output/)
+vol_surface.png
+vol_surface_cubic.png
+vol_surface_linear.png
+
+# Old root-level scripts (superseded by python/ and cpp/)
+Project.cpp
+traitement_csv.py
+vol_surface.py
+
+# Old data files with spaces in names
+NVDA Calls.csv
+NVDA Calls Clean.csv
+NVDA Calls.xlsx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
