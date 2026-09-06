@@ -11,25 +11,10 @@ import pandas as pd
 from pathlib import Path
 from scipy.interpolate import griddata
 
+from vol_surface import load_clean  # meme filtrage qualite que la surface
+
 ROOT = Path(__file__).parent.parent
 RNG = np.random.default_rng(42)
-
-
-# ---------------------------------------------------------------- donnees
-def load_clean():
-    df = pd.read_csv(ROOT / "data" / "nvda_calls_clean.csv")
-    n0 = len(df)
-
-    bid0 = df["Bid"] == 0
-    spread = (df["Ask"] - df["Bid"]) / df["Ask"].replace(0, np.nan)
-    wide = spread > 0.50
-    ghost = (df["Volume"] == 0) & (df["Open Interest"] < 10)
-
-    keep = ~(bid0 | wide | ghost)
-    print(f"Filtrage qualite : {n0} options -> {keep.sum()} conservees "
-          f"(bid=0: {bid0.sum()}, spread>50%: {(wide & ~bid0).sum()}, "
-          f"fantomes: {(ghost & ~bid0 & ~wide).sum()})")
-    return df[keep].reset_index(drop=True)
 
 
 # ------------------------------------------------------------ predicteur

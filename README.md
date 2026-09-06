@@ -107,6 +107,8 @@ Sur chaque triangle de Delaunay, un polynôme de degré 3 est ajusté avec conti
 
 **Problème avec ces données :** les 7 valeurs de DTM sont très inégalement espacées (1, 6, 8, 10, 17, 24, 31 jours). La triangulation de Delaunay produit des triangles très allongés dans la direction DTM entre les maturités peu denses. Sur ces triangles pathologiques, le schéma Clough-Tocher amplifie les oscillations de manière non physique : la surface présente des pics et des creux artificiels (dents de scie) autour des DTM 5–15, alors que les données sources sont propres et l'IV varie en réalité de façon monotone.
 
+**Vérification chiffrée :** l'IV observée sur les 138 options culmine à 72,0 %. La surface `cubic` monte jusqu'à **80,6 %** sur la grille interpolée, soit 8,6 points de volatilité au-dessus du maximum de marché, dans une zone où aucune option n'est cotée. La surface `linear` plafonne à 71,7 %, à l'intérieur des données par construction.
+
 **Conséquence financière :** une surface cubic sur données éparses peut suggérer des arbitrages inexistants — par exemple une IV qui remonte entre deux maturités alors qu'elle devrait décroître, ou un smile déformé qui fausserait un pricing par interpolation.
 
 #### `method="linear"` — Interpolation barycentrique
