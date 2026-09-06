@@ -12,7 +12,8 @@ nvda-implied-volatility/
 │   └── interpolation.cpp       # Interpolation par spline cubique — partie scolaire
 ├── python/
 │   ├── clean_data.py           # Nettoyage des données brutes
-│   └── vol_surface.py          # Filtrage qualité + visualisation de la surface
+│   ├── vol_surface.py          # Filtrage qualité + visualisation de la surface
+│   └── validate_surface.py     # Validation out-of-sample + benchmark de vitesse
 ├── data/
 │   ├── nvda_calls_raw.xlsx     # Données brutes (options call NVDA, 5 mai 2026)
 │   └── nvda_calls_clean.csv    # Données nettoyées (générées par clean_data.py)
@@ -129,6 +130,74 @@ Pour ce dataset (7 DTM, espacement irrégulier), **`linear` est retenu** comme m
 
 ---
 
+## Partie 3 — Validation quantitative de la surface
+
+Une surface visuellement plausible n'est pas nécessairement fidèle. Pour mesurer la qualité de la reconstruction, chaque option est retirée du jeu d'entraînement, la surface est reconstruite sans elle, puis l'IV interpolée à ce point est comparée à l'IV de marché observée. Le filtrage qualité est appliqué **avant** le découpage, pour éviter toute fuite d'information.
+
+Script : `python/validate_surface.py`
+
+### Erreur out-of-sample
+
+Référence : IV moyenne 45,7 %, dispersion 8,24 points de volatilité — c'est la variabilité que l'interpolation doit expliquer.
+
+**Leave-one-out** (138 reconstructions, une par option) :
+
+| Méthode | MAE | RMSE | R² | p95 | Max | Couverture |
+|---|---|---|---|---|---|---|
+| `griddata` **linear** | **1,13** pts de vol | 2,04 | 0,936 | 5,05 | 10,00 | 96 % |
+| `griddata` **cubic** | 1,18 pts de vol | 1,89 | 0,945 | 5,07 | 6,94 | 96 % |
+| Baseline : moyenne du smile par maturité | 5,88 pts de vol | 7,52 | 0,163 | 15,43 | 25,66 | 100 % |
+
+**5-fold × 10 répétitions** (20 % des points retirés en bloc — test plus sévère, l'interpolation ne peut plus s'appuyer sur les voisins immédiats) :
+
+| Méthode | MAE | RMSE | R² |
+|---|---|---|---|
+| `griddata` linear | 1,35 pts de vol | 2,32 | 0,917 |
+| `griddata` cubic | 1,46 pts de vol | 2,35 | 0,915 |
+
+La baseline est indispensable à la lecture du R² : sur une surface lisse, un R² élevé peut n'être qu'un artefact. Ici la baseline « moyenne du smile de la même maturité » plafonne à R² = 0,16, ce qui confirme que l'essentiel du signal capté vient bien de la structure en strike, pas de la seule term structure.
+
+**Couverture 96 %** : environ 5 points, situés aux coins de l'enveloppe convexe, en sortent une fois retirés. `griddata` n'extrapole pas et renvoie `NaN` ; ces points sont exclus du calcul plutôt que comptés comme erreur nulle.
+
+### Où se concentre l'erreur
+
+Ventilation par zone de strike (leave-one-out, méthode linear) :
+
+| Zone | n | MAE | RMSE |
+|---|---|---|---|
+| < 180 $ (ITM) | 23 | **3,61** | 4,50 |
+| 180–200 $ (ATM) | 34 | 0,82 | 1,14 |
+| 200–220 $ (OTM) | 38 | 0,46 | 0,64 |
+| > 220 $ (deep OTM) | 38 | 0,57 | 0,86 |
+
+L'erreur est très concentrée du côté ITM, là où le skew est le plus convexe : une interpolation linéaire par morceaux coupe la corde de la courbe et sous-estime systématiquement l'IV. Sur le cœur de la surface (ATM et OTM, 110 des 133 points évalués), l'écart tombe à **±0,5 à 0,8 point de volatilité**.
+
+Par maturité, le comportement est homogène (MAE de 0,39 à 1,75 point de vol, le maximum étant à DTM = 8) : aucune maturité ne dégrade la surface à elle seule.
+
+### Ordre de grandeur
+
+Une MAE de 1,3 point de volatilité se compare aux 1 à 2 points d'écart d'IV induits par le spread bid-ask sur ces mêmes contrats. **L'erreur d'interpolation est du même ordre que le bruit du marché sous-jacent** — améliorer la méthode d'interpolation sans données plus profondes n'aurait donc guère de sens.
+
+### Temps de calcul
+
+Grille 80 × 80, soit 6 400 points interpolés, méthode linear :
+
+| Approche | Temps | Par point |
+|---|---|---|
+| Surface complète (Delaunay construit une fois, évaluation vectorisée) | **1,4 ms** | 0,2 µs |
+| Même interpolateur interrogé point par point en boucle Python | 18 ms | 2,8 µs |
+| Chaînage de splines 1D par point (approche de la partie C++) | 3 060 ms | 479 µs |
+
+Le coût de la surface complète se décompose en 1,3 ms de triangulation de Delaunay et 0,07 ms d'évaluation. Le gain vient donc de l'**amortissement de la structure géométrique** : elle est construite une seule fois pour les 6 400 points, alors que le chaînage de splines de la partie C++ réajuste 8 splines cubiques (7 en strike, 1 en DTM) à chaque requête.
+
+### Limites
+
+- Le dataset est un **snapshot** : 138 options, 7 maturités, une seule date de cotation (5 mai 2026). Les chiffres ci-dessus mesurent la cohérence interne de la surface à un instant donné, pas sa stabilité dans le temps.
+- Le leave-one-out est optimiste sur des données denses : retirer un point entouré de ses voisins est un exercice facile. Le 5-fold à 20 % est la métrique à retenir.
+- Le comparatif de vitesse oppose deux algorithmes distincts, il ne mesure pas une optimisation du même code.
+
+---
+
 ## Lecture financière de la surface
 
 ### Smile et skew de volatilité
@@ -174,4 +243,7 @@ python python/clean_data.py
 
 # Générer les surfaces de volatilité (sauvegardées dans output/)
 python python/vol_surface.py
+
+# Reproduire les métriques de validation de la Partie 3
+python python/validate_surface.py
 ```
